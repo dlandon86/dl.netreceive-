@@ -1,3 +1,28 @@
+/* ------------------------ dl.netreceive~ ----------------------------------------/
+*
+* Sends uncompressed audio data over IP, from dl.netreceive~ to dl.netreceive~.
+*
+* Copyright (C) 2020 David Landon
+*
+* dl.netreceive~ utilizes Libuv and Pthread libraries, so those will be needed
+* if you intent to modify.
+*
+* dl.netreceive~ is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License, or
+* (at your option) any later version.
+*
+* dl.netreceive~ is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY
+* OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+* OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+* See the GNU General Public License for more details.
+*
+* <http://www.gnu.org/licenses/>
+*
+* ---------------------------------------------------------------------------- */
+
+
 #include "uv.h" 
 
 #include "ext.h"			// standard Max include, always required (except in Jitter)
@@ -137,12 +162,12 @@ void *dlnetreceive_new(t_symbol *s, long argc, t_atom *argv)
         x->d_channels = atom_getlong(ap);
         if (x->d_channels > 0 && x->d_channels <= MAXIMUM_AUDIO_CHANNELS)
         {
-            post("netsend~: channels set to %d", x->d_channels);
+            post("dl.netreceive~: channels set to %d", x->d_channels);
         }
         else
         {
             x->d_channels = DEFAULT_AUDIO_CHANNELS;
-            post("netsend~: Channel argument missing or outside allowable range. Channels set to %d", x->d_channels);
+            post("dl.netreceive~: Channel argument missing or outside allowable range. Channels set to %d", x->d_channels);
         }
 
 		dsp_setup((t_pxobject *)x, x->d_channels);	// MSP inlets: arg is # of inlets and is REQUIRED!
@@ -155,12 +180,12 @@ void *dlnetreceive_new(t_symbol *s, long argc, t_atom *argv)
         if (x->d_ipaddr->s_name != ps_nothing->s_name)
         {
             x->d_ipaddr = gensym(atom_getsym(ap + 1)->s_name);
-            post("dl.netsend~: Ip address set to %s", x->d_ipaddr->s_name);
+            post("dl.netreceive~: Ip address set to %s", x->d_ipaddr->s_name);
         }
         else
         {
             x->d_ipaddr = gensym(DEFAULT_IP_ADDRESS);
-            post("dl.netsend~: IP Address argument missing. set to %s", x->d_ipaddr->s_name);
+            post("dl.netreceive~: IP Address argument missing. set to %s", x->d_ipaddr->s_name);
         }
 
         // Set port number
@@ -169,11 +194,11 @@ void *dlnetreceive_new(t_symbol *s, long argc, t_atom *argv)
         if (x->d_portno->s_name != ps_nothing->s_name)
         {
             x->d_portno = gensym(atom_getsym(ap + 2)->s_name);
-            post("dl.netsend~: Port number set to %s", x->d_portno->s_name);
+            post("dl.netreceive~: Port number set to %s", x->d_portno->s_name);
         }
         else {
             x->d_portno = gensym(DEFAULT_PORT);
-            post("dl.netsend~: Port number argument missing. set to %s", x->d_portno->s_name);
+            post("dl.netreceive~: Port number argument missing. set to %s", x->d_portno->s_name);
         }
 	}
 	return (x);
