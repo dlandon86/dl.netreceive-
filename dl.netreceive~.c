@@ -57,7 +57,7 @@ typedef struct _dlnetreceive {
     uv_loop_t       *loop;
     uv_udp_t        recv_handle;
     uv_udp_send_t   send_req;
-    struct sockaddr_in6 recv_addr;
+    struct sockaddr_in recv_addr;
 
     pthread_t       thread;
 
@@ -65,24 +65,16 @@ typedef struct _dlnetreceive {
 
     long            vs;
 
+    uv_loop_t event_loop_struct;
+    uv_loop_t* event_loop_ptr;
+
+
 
 } t_dlnetreceive;
 
 
-static uv_loop_t event_loop_struct;
-static uv_loop_t* event_loop_ptr;
 
 
-uv_loop_t* uv_event_loop(void) {
-    if (event_loop_ptr != NULL)
-        return event_loop_ptr;
-
-    if (uv_loop_init(&event_loop_struct))
-        return NULL;
-
-    event_loop_ptr = &event_loop_struct;
-    return event_loop_ptr;
-}
 
 
 static t_symbol* ps_nothing, * ps_localhost;
@@ -105,7 +97,9 @@ void recv_cb(uv_udp_t* req, ssize_t nread, const uv_buf_t* buf, const struct soc
 void alloc_cb(uv_handle_t* handle, size_t size, uv_buf_t* buf);
 void start_recv(t_dlnetreceive *x);
 void sock_connect(t_dlnetreceive *x);
-void thread_main();
+void thread_main(void* arg);
+uv_loop_t* uv_event_loop(t_dlnetreceive* x);
+
 
 
 // global class pointer variable
@@ -200,6 +194,10 @@ void *dlnetreceive_new(t_symbol *s, long argc, t_atom *argv)
             x->d_portno = gensym(DEFAULT_PORT);
             post("dl.netreceive~: Port number argument missing. set to %s", x->d_portno->s_name);
         }
+        
+        x->buffer.base = (char*)malloc(sizeof(double) * sys_getblksize());
+        x->buffer.len = sys_getblksize() * sizeof(double);
+
 	}
 	return (x);
 }
@@ -235,8 +233,8 @@ void dlnetreceive_dsp64(t_dlnetreceive *x, t_object *dsp64, short *count, double
 	post("my sample rate is: %f", samplerate);
 
     x->vs = maxvectorsize;
-    x->buffer.base = (char*)malloc(sizeof(double) * maxvectorsize);
-    x->buffer.len = maxvectorsize;
+    //x->buffer.base = (char*)malloc(sizeof(double) * maxvectorsize);
+    //x->buffer.len = maxvectorsize * sizeof(double);
 
 	object_method(dsp64, gensym("dsp_add64"), x, dlnetreceive_perform64, 0, NULL);
 }
@@ -245,15 +243,16 @@ void dlnetreceive_dsp64(t_dlnetreceive *x, t_object *dsp64, short *count, double
 // this is the 64-bit perform method audio vectors
 void dlnetreceive_perform64(t_dlnetreceive *x, t_object *dsp64, double **ins, long numins, double **outs, long numouts, long sampleframes, long flags, void *userparam)
 {
-	t_double *inL = ins[0];		// we get audio for each inlet of the object from the **ins argument
-	t_double *outL = outs[0];	// we get audio for each outlet of the object from the **outs argument
+    t_double* in1a = ins[0];
+    t_double *in1b = malloc(sampleframes * sizeof(double));	
+	t_double *outL = outs[0];
 	int n = sampleframes;
 
-    memcpy(outs[0], x->buffer.base, sizeof(double) * x->vs);
+    memcpy(in1b, x->buffer.base, sampleframes * sizeof(double));
 
 	// this perform method simply copies the input to the output, offsetting the value
 	while (n--)
-		*outL++ = *inL++ + x->d_offset;
+		*outL++ = *in1b++;
 }
 
 void dlnetreceive_int(t_dlnetreceive* x, long n)
@@ -286,17 +285,19 @@ void recv_cb(uv_udp_t* req, ssize_t nread, const uv_buf_t* buf, const struct soc
     uv_ip4_name((struct sockaddr_in*) addr, sender, 16);
     post("dlnetreceive: recv from %s\n", sender);
 
-    memcpy(x->buffer.base, buf->base, sizeof(double) * x->vs);
+    //memcpy(x->buffer.base, buf->base, sizeof(double) * x->vs); // this is a precarious operation... look here for issues!
 
     free(buf->base);
 }
 
 void alloc_cb(uv_handle_t* handle, size_t size, uv_buf_t* buf) {
+    //t_dlnetreceive* x = handle->data;
 
-    t_dlnetreceive* x = handle->data;
+    //buf->base = (char*)malloc(sizeof(double) * x->vs);
+    //buf->len = x->vs;
 
-    buf->base = (char*)malloc(sizeof(double) * x->vs);
-    buf->len = x->vs;
+    buf->base = malloc(size);
+    buf->len = size;
 
     post("dl.netreceive: message received");
     assert(buf->base != NULL);
@@ -305,19 +306,13 @@ void alloc_cb(uv_handle_t* handle, size_t size, uv_buf_t* buf) {
 void start_recv(t_dlnetreceive *x) {
     int r;
 
+    r = uv_ip4_addr("0.0.0.0", 9123, &x->recv_addr);
+    if (r) UV_ERROR("ip4_addr", r);
 
-    /*memset(&recv_addr, 0, sizeof(recv_addr));
-    recv_addr.sin6_family = AF_INET6;
-    recv_addr.sin6_port = htons(8200);
-    memcpy(&recv_addr.sin6_addr, &in6addr_any, sizeof(recv_addr.sin6_addr));*/
-
-    r = uv_ip6_addr("0:0:0:0:0:0:0:0", 9123, &x->recv_addr);
-    if (r) UV_ERROR("ip6_addr", r);
-
-    post("from object: %s", x->recv_addr.sin6_addr);
+    //x->recv_addr.sin6_family = AF_INET6;
 
     //  bind
-    r = uv_udp_bind(&x->recv_handle, (const struct sockaddr*) &x->recv_addr, 1); // changed from 0 "unused"
+    r = uv_udp_bind(&x->recv_handle, (const struct sockaddr*) &x->recv_addr, 0); // changed from 0 "unused"
     if (r) UV_ERROR("udp bind", r);
 
     //  start
@@ -327,20 +322,32 @@ void start_recv(t_dlnetreceive *x) {
 
 void sock_connect(t_dlnetreceive *x) {
 
-    x->loop = (uv_loop_t*)malloc(sizeof(uv_loop_t));  // is this necessary? I'm pointing it to a function shortly after... Should it be in the initialization routine?
-    x->loop = uv_event_loop();
+    x->loop = uv_event_loop(x);
 
     uv_udp_init(x->loop, &x->recv_handle);
 
     start_recv(x);
 
-    pthread_create(&x->thread, NULL, thread_main, NULL);
+    pthread_create(&x->thread, NULL, thread_main, x);
 
 }
 
-void thread_main()
+void thread_main(void* arg)
 {
-    post("dlnetsend: Opening loop");
-    uv_run(uv_event_loop(), UV_RUN_DEFAULT);
-    post("dlnetsend: loop closing");
+    t_dlnetreceive* x = arg;
+
+    post("dlnetreceive: Opening loop");
+    uv_run(x->loop, UV_RUN_DEFAULT);
+    post("dlnetreceive: loop closing");
+}
+
+uv_loop_t* uv_event_loop(t_dlnetreceive* x) {
+    if (x->event_loop_ptr != NULL)
+        return x->event_loop_ptr;
+
+    if (uv_loop_init(&x->event_loop_struct))
+        return NULL;
+
+    x->event_loop_ptr = &x->event_loop_struct;
+    return x->event_loop_ptr;
 }
